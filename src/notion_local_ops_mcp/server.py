@@ -292,19 +292,27 @@ def run_command(
     ),
 )
 def delegate_task(
-    task: str,
+    task: str | None = None,
+    goal: str | None = None,
     executor: str = "auto",
     cwd: str | None = None,
     context_files: list[str] | None = None,
+    acceptance_criteria: list[str] | None = None,
+    verification_commands: list[str] | None = None,
+    commit_mode: str = "allowed",
     timeout: int | None = None,
 ) -> dict[str, object]:
     resolved_cwd = resolve_cwd(cwd, WORKSPACE_ROOT)
     return registry.submit(
         task=task,
+        goal=goal,
         executor=executor,
         cwd=resolved_cwd,
         timeout=timeout if timeout is not None else DELEGATE_TIMEOUT,
         context_files=context_files,
+        acceptance_criteria=acceptance_criteria,
+        verification_commands=verification_commands,
+        commit_mode=commit_mode,
     )
 
 

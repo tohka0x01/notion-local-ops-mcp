@@ -45,6 +45,7 @@ class TaskStore:
         cwd: str,
         timeout: int | None = None,
         context_files: list[str] | None = None,
+        metadata: dict[str, object] | None = None,
     ) -> dict[str, object]:
         with self._lock:
             task_id = uuid.uuid4().hex[:12]
@@ -61,6 +62,8 @@ class TaskStore:
                 "created_at": _now(),
                 "updated_at": _now(),
             }
+            if metadata:
+                payload.update(metadata)
             self._write_text(self._meta_path(task_id), json.dumps(payload, indent=2))
             self._write_text(self._stdout_path(task_id), "")
             self._write_text(self._stderr_path(task_id), "")

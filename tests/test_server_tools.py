@@ -65,3 +65,28 @@ def test_server_read_files_tool_returns_multiple_file_results(tmp_path: Path) ->
 
     assert result["success"] is True
     assert [item["content"] for item in result["results"]] == ["alpha", "beta"]
+
+
+def test_server_delegate_task_accepts_structured_fields(tmp_path: Path) -> None:
+    from notion_local_ops_mcp import server
+
+    server.registry = ExecutorRegistry(
+        store=TaskStore(tmp_path / "state"),
+        codex_command="python3 -c \"print('codex')\"",
+        claude_command="python3 -c \"print('claude')\"",
+    )
+
+    queued = server.delegate_task(
+        task="Implement the fallback flow",
+        goal="Ship a working fallback task runner",
+        cwd=str(tmp_path),
+        acceptance_criteria=["Tool returns structured status"],
+        verification_commands=["pytest -q"],
+        commit_mode="allowed",
+    )
+    meta = server.get_task(queued["task_id"])
+
+    assert meta["goal"] == "Ship a working fallback task runner"
+    assert meta["acceptance_criteria"] == ["Tool returns structured status"]
+    assert meta["verification_commands"] == ["pytest -q"]
+    assert meta["commit_mode"] == "allowed"

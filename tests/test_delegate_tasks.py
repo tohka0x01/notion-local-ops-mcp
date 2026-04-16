@@ -123,3 +123,56 @@ def test_cancel_marks_background_command_cancelled(tmp_path: Path) -> None:
     assert cancelled["status"] == "cancelled"
     assert result["status"] == "cancelled"
     assert result["completed"] is True
+
+
+def test_submit_persists_structured_delegate_metadata(tmp_path: Path) -> None:
+    store = TaskStore(tmp_path / "state")
+    registry = ExecutorRegistry(
+        store=store,
+        codex_command="python3 -c \"print('codex')\"",
+        claude_command="python3 -c \"print('claude')\"",
+    )
+
+    task = registry.submit(
+        task="Implement the fallback flow",
+        goal="Ship a working fallback task runner",
+        executor="codex",
+        cwd=tmp_path,
+        timeout=5,
+        context_files=["README.md"],
+        acceptance_criteria=["Tool returns structured status"],
+        verification_commands=["pytest -q"],
+        commit_mode="allowed",
+    )
+    stored = store.get(task["task_id"])
+
+    assert stored["goal"] == "Ship a working fallback task runner"
+    assert stored["acceptance_criteria"] == ["Tool returns structured status"]
+    assert stored["verification_commands"] == ["pytest -q"]
+    assert stored["commit_mode"] == "allowed"
+
+
+def test_build_prompt_includes_structured_delegate_sections(tmp_path: Path) -> None:
+    store = TaskStore(tmp_path / "state")
+    registry = ExecutorRegistry(
+        store=store,
+        codex_command="python3 -c \"print('codex')\"",
+        claude_command="python3 -c \"print('claude')\"",
+    )
+
+    prompt = registry._build_prompt(
+        task="Implement the fallback flow",
+        goal="Ship a working fallback task runner",
+        context_files=["README.md", "src/app.py"],
+        acceptance_criteria=["Tool returns structured status", "Tests pass"],
+        verification_commands=["pytest -q", "python -m compileall src tests"],
+        commit_mode="required",
+    )
+
+    assert "Goal:" in prompt
+    assert "Ship a working fallback task runner" in prompt
+    assert "Acceptance criteria:" in prompt
+    assert "- Tool returns structured status" in prompt
+    assert "Verification commands:" in prompt
+    assert "- pytest -q" in prompt
+    assert "Commit mode: required" in prompt

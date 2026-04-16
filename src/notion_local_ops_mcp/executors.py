@@ -12,6 +12,7 @@ from .tasks import TaskStore
 
 
 TERMINAL_TASK_STATUSES = {"succeeded", "failed", "cancelled"}
+ALLOWED_COMMIT_MODES = {"allowed", "required", "forbidden"}
 
 
 def _command_available(command: str | None) -> bool:
@@ -75,26 +76,56 @@ class ExecutorRegistry:
     def submit(
         self,
         *,
-        task: str,
+        task: str | None,
+        goal: str | None = None,
         executor: str,
         cwd: Path,
         timeout: int,
         context_files: list[str] | None = None,
+        acceptance_criteria: list[str] | None = None,
+        verification_commands: list[str] | None = None,
+        commit_mode: str = "allowed",
     ) -> dict[str, object]:
+        normalized_task = (task or "").strip()
+        normalized_goal = (goal or "").strip()
+        if not normalized_task and not normalized_goal:
+            raise ValueError("delegate_task requires task or goal.")
+        if commit_mode not in ALLOWED_COMMIT_MODES:
+            raise ValueError(f"Unsupported commit_mode: {commit_mode}")
+
         chosen_executor, command = self._resolve_executor(executor)
         created = self.store.create(
-            task=task,
+            task=normalized_task or normalized_goal,
             executor=chosen_executor,
             cwd=str(cwd),
             timeout=timeout,
             context_files=context_files,
+            metadata={
+                "goal": normalized_goal or None,
+                "acceptance_criteria": acceptance_criteria or [],
+                "verification_commands": verification_commands or [],
+                "commit_mode": commit_mode,
+            },
         )
         cancel_event = threading.Event()
         with self._lock:
             self._cancel_events[created["task_id"]] = cancel_event
         thread = threading.Thread(
             target=self._run_task,
-            args=(created["task_id"], chosen_executor, command, task, cwd, timeout, cancel_event, context_files or []),
+            args=(
+                created["task_id"],
+                chosen_executor,
+                command,
+                normalized_task or None,
+                normalized_goal or None,
+                cwd,
+                timeout,
+                cancel_event,
+                context_files or [],
+                acceptance_criteria or [],
+                verification_commands or [],
+                commit_mode,
+            ),
             daemon=True,
         )
         thread.start()
@@ -193,11 +224,15 @@ class ExecutorRegistry:
         task_id: str,
         executor_name: str,
         command: str,
-        task: str,
+        task: str | None,
+        goal: str | None,
         cwd: Path,
         timeout: int,
         cancel_event: threading.Event,
         context_files: list[str],
+        acceptance_criteria: list[str],
+        verification_commands: list[str],
+        commit_mode: str,
     ) -> None:
         if cancel_event.is_set():
             self.store.update(task_id, status="cancelled")
@@ -208,8 +243,12 @@ class ExecutorRegistry:
             executor_name=executor_name,
             command=command,
             task=task,
+            goal=goal,
             cwd=cwd,
             context_files=context_files,
+            acceptance_criteria=acceptance_criteria,
+            verification_commands=verification_commands,
+            commit_mode=commit_mode,
         )
         process = subprocess.Popen(
             invocation.args,
@@ -309,11 +348,22 @@ class ExecutorRegistry:
         *,
         executor_name: str,
         command: str,
-        task: str,
+        task: str | None,
+        goal: str | None,
         cwd: Path,
         context_files: list[str],
+        acceptance_criteria: list[str],
+        verification_commands: list[str],
+        commit_mode: str,
     ) -> Invocation:
-        prompt = self._build_prompt(task=task, context_files=context_files)
+        prompt = self._build_prompt(
+            task=task,
+            goal=goal,
+            context_files=context_files,
+            acceptance_criteria=acceptance_criteria,
+            verification_commands=verification_commands,
+            commit_mode=commit_mode,
+        )
         if executor_name == "codex":
             parts = shlex.split(command)
             if Path(parts[0]).name == "codex":
@@ -346,9 +396,31 @@ class ExecutorRegistry:
                 )
         return Invocation(args=command, use_shell=True)
 
-    def _build_prompt(self, *, task: str, context_files: list[str]) -> str:
-        if not context_files:
-            return task
-        lines = [task, "", "Context files:"]
-        lines.extend(f"- {path}" for path in context_files)
+    def _build_prompt(
+        self,
+        *,
+        task: str | None,
+        goal: str | None,
+        context_files: list[str],
+        acceptance_criteria: list[str],
+        verification_commands: list[str],
+        commit_mode: str,
+    ) -> str:
+        lines: list[str] = []
+        if goal:
+            lines.extend(["Goal:", goal, ""])
+        if task:
+            lines.extend(["Task:", task, ""])
+        if acceptance_criteria:
+            lines.append("Acceptance criteria:")
+            lines.extend(f"- {item}" for item in acceptance_criteria)
+            lines.append("")
+        if verification_commands:
+            lines.append("Verification commands:")
+            lines.extend(f"- {item}" for item in verification_commands)
+            lines.append("")
+        lines.append(f"Commit mode: {commit_mode}")
+        if context_files:
+            lines.extend(["", "Context files:"])
+            lines.extend(f"- {path}" for path in context_files)
         return "\n".join(lines)
