@@ -2,6 +2,9 @@
 
 Use Notion AI with your local files, shell, and fallback local agents.
 
+📖 **[Project Introduction (Notion Page)](https://www.notion.so/notion-local-ops-mcp-344b4da3979d80e8958ae3fdf1d5e4d9?source=copy_link)**
+
+
 ## What It Provides
 
 - `list_files`
