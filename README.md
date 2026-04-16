@@ -41,20 +41,21 @@ pip install -e .
 
 ## Configure
 
-Copy `.env.example` and set at least:
+Copy `.env.example` to `.env` and set at least:
 
 ```bash
-export NOTION_LOCAL_OPS_WORKSPACE_ROOT="/absolute/path/to/workspace"
-export NOTION_LOCAL_OPS_AUTH_TOKEN="replace-me"
+cp .env.example .env
+NOTION_LOCAL_OPS_WORKSPACE_ROOT="/absolute/path/to/workspace"
+NOTION_LOCAL_OPS_AUTH_TOKEN="replace-me"
 ```
 
 Optional:
 
 ```bash
-export NOTION_LOCAL_OPS_CODEX_COMMAND="codex"
-export NOTION_LOCAL_OPS_CLAUDE_COMMAND="claude"
-export NOTION_LOCAL_OPS_COMMAND_TIMEOUT="30"
-export NOTION_LOCAL_OPS_DELEGATE_TIMEOUT="1800"
+NOTION_LOCAL_OPS_CODEX_COMMAND="codex"
+NOTION_LOCAL_OPS_CLAUDE_COMMAND="claude"
+NOTION_LOCAL_OPS_COMMAND_TIMEOUT="30"
+NOTION_LOCAL_OPS_DELEGATE_TIMEOUT="1800"
 ```
 
 ## Start
@@ -69,6 +70,28 @@ Local endpoint:
 ```text
 http://127.0.0.1:8766/mcp
 ```
+
+## One-Command Local Dev Tunnel
+
+Recommended local workflow:
+
+```bash
+./scripts/dev-tunnel.sh
+```
+
+What it does:
+
+- reuses or creates `.venv`
+- installs missing runtime dependencies
+- loads `.env` from the repo root if present
+- starts `notion-local-ops-mcp`
+- opens a `cloudflared` quick tunnel to your local server
+
+Notes:
+
+- `.env` is gitignored, so your local token and workspace path stay out of git
+- if `NOTION_LOCAL_OPS_WORKSPACE_ROOT` is unset, the script defaults it to the repo root
+- if `NOTION_LOCAL_OPS_AUTH_TOKEN` is unset, the script exits with an error instead of guessing
 
 ## Expose With cloudflared
 
