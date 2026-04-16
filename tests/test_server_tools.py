@@ -51,3 +51,17 @@ def test_server_run_command_can_dispatch_background_tasks(tmp_path: Path) -> Non
     assert queued["status"] == "queued"
     assert result["status"] == "succeeded"
     assert "background" in result["stdout_tail"]
+
+
+def test_server_read_files_tool_returns_multiple_file_results(tmp_path: Path) -> None:
+    from notion_local_ops_mcp import server
+
+    first = tmp_path / "one.txt"
+    second = tmp_path / "two.txt"
+    first.write_text("alpha\n", encoding="utf-8")
+    second.write_text("beta\n", encoding="utf-8")
+
+    result = server.read_files(paths=[str(first), str(second)])
+
+    assert result["success"] is True
+    assert [item["content"] for item in result["results"]] == ["alpha", "beta"]

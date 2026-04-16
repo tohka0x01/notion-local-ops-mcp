@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from notion_local_ops_mcp.files import list_files, read_file, replace_in_file, write_file
+from notion_local_ops_mcp.files import list_files, read_file, read_files, replace_in_file, write_file
 from notion_local_ops_mcp.pathing import resolve_path
 
 
@@ -41,6 +41,19 @@ def test_read_file_supports_offset_and_limit(tmp_path: Path) -> None:
     assert result["success"] is True
     assert result["content"] == "two\nthree"
     assert result["next_offset"] == 4
+
+
+def test_read_files_returns_multiple_results_in_order(tmp_path: Path) -> None:
+    first = tmp_path / "one.txt"
+    second = tmp_path / "two.txt"
+    first.write_text("alpha\nbeta\n", encoding="utf-8")
+    second.write_text("gamma\ndelta\n", encoding="utf-8")
+
+    result = read_files([first, second], offset=1, limit=1, max_lines=50, max_bytes=4096)
+
+    assert result["success"] is True
+    assert [item["path"] for item in result["results"]] == [str(first), str(second)]
+    assert [item["content"] for item in result["results"]] == ["alpha", "gamma"]
 
 
 def test_write_file_creates_parent_directories(tmp_path: Path) -> None:

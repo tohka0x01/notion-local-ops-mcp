@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,6 +41,15 @@ class UpdateFilePatch:
     path: str
     move_to: str | None
     hunks: list[UpdateHunk]
+
+
+@dataclass(frozen=True)
+class PlannedChange:
+    kind: str
+    path: Path
+    previous_path: Path | None
+    old_text: str
+    new_text: str
 
 
 PatchOperation = AddFilePatch | DeleteFilePatch | UpdateFilePatch
@@ -187,7 +197,7 @@ def _apply_hunk(lines: list[str], hunk: UpdateHunk, cursor: int) -> tuple[list[s
     return updated, match_index + len(new_lines)
 
 
-def _apply_update(path: Path, move_to: Path | None, hunks: list[UpdateHunk]) -> dict[str, object]:
+def _plan_update(path: Path, move_to: Path | None, hunks: list[UpdateHunk]) -> PlannedChange:
     if not path.exists():
         raise PatchError("file_not_found", f"File not found: {path}", path=str(path))
     if not path.is_file():
@@ -203,45 +213,109 @@ def _apply_update(path: Path, move_to: Path | None, hunks: list[UpdateHunk]) -> 
     if move_to and move_to.exists() and move_to != path:
         raise PatchError("target_exists", f"Move target already exists: {move_to}", path=str(move_to))
 
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(_join_lines(lines, trailing_newline=original.endswith("\n")), encoding="utf-8")
-    if move_to and move_to != path:
-        path.unlink()
-        return {"kind": "move", "path": str(target), "previous_path": str(path)}
-    return {"kind": "update", "path": str(target)}
+    return PlannedChange(
+        kind="move" if move_to and move_to != path else "update",
+        path=target,
+        previous_path=path if move_to and move_to != path else None,
+        old_text=original,
+        new_text=_join_lines(lines, trailing_newline=original.endswith("\n")),
+    )
 
 
-def _apply_add(path: Path, lines: list[str]) -> dict[str, object]:
+def _plan_add(path: Path, lines: list[str]) -> PlannedChange:
     if path.exists():
         raise PatchError("path_exists", f"Path already exists: {path}", path=str(path))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_join_lines(lines, trailing_newline=bool(lines)), encoding="utf-8")
-    return {"kind": "add", "path": str(path)}
+    return PlannedChange(
+        kind="add",
+        path=path,
+        previous_path=None,
+        old_text="",
+        new_text=_join_lines(lines, trailing_newline=bool(lines)),
+    )
 
 
-def _apply_delete(path: Path) -> dict[str, object]:
+def _plan_delete(path: Path) -> PlannedChange:
     if not path.exists():
         raise PatchError("path_not_found", f"Path not found: {path}", path=str(path))
     if path.is_dir():
         raise PatchError("not_a_file", f"Delete file patch only supports files: {path}", path=str(path))
-    path.unlink()
-    return {"kind": "delete", "path": str(path)}
+    return PlannedChange(
+        kind="delete",
+        path=path,
+        previous_path=None,
+        old_text=_read_text(path),
+        new_text="",
+    )
 
 
-def apply_patch(*, patch: str, workspace_root: Path) -> dict[str, object]:
+def _serialize_change(change: PlannedChange) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "kind": change.kind,
+        "path": str(change.path),
+    }
+    if change.previous_path is not None:
+        payload["previous_path"] = str(change.previous_path)
+    return payload
+
+
+def _render_diff(change: PlannedChange) -> str:
+    old_path = str(change.previous_path or change.path)
+    new_path = str(change.path)
+    return "".join(
+        difflib.unified_diff(
+            change.old_text.splitlines(keepends=True),
+            change.new_text.splitlines(keepends=True),
+            fromfile=old_path,
+            tofile=new_path,
+        )
+    )
+
+
+def _apply_change(change: PlannedChange) -> None:
+    if change.kind == "delete":
+        change.path.unlink()
+        return
+    change.path.parent.mkdir(parents=True, exist_ok=True)
+    change.path.write_text(change.new_text, encoding="utf-8")
+    if change.kind == "move" and change.previous_path is not None and change.previous_path != change.path:
+        change.previous_path.unlink()
+
+
+def apply_patch(
+    *,
+    patch: str,
+    workspace_root: Path,
+    dry_run: bool = False,
+    validate_only: bool = False,
+    return_diff: bool = False,
+) -> dict[str, object]:
     try:
         operations = parse_patch(patch)
-        changes: list[dict[str, object]] = []
+        planned_changes: list[PlannedChange] = []
         for operation in operations:
             if isinstance(operation, AddFilePatch):
-                changes.append(_apply_add(resolve_path(operation.path, workspace_root), operation.lines))
+                planned_changes.append(_plan_add(resolve_path(operation.path, workspace_root), operation.lines))
                 continue
             if isinstance(operation, DeleteFilePatch):
-                changes.append(_apply_delete(resolve_path(operation.path, workspace_root)))
+                planned_changes.append(_plan_delete(resolve_path(operation.path, workspace_root)))
                 continue
             target = resolve_path(operation.path, workspace_root)
             move_to = resolve_path(operation.move_to, workspace_root) if operation.move_to else None
-            changes.append(_apply_update(target, move_to, operation.hunks))
-        return {"success": True, "changes": changes}
+            planned_changes.append(_plan_update(target, move_to, operation.hunks))
+
+        should_apply = not dry_run and not validate_only
+        if should_apply:
+            for change in planned_changes:
+                _apply_change(change)
+
+        payload: dict[str, object] = {
+            "success": True,
+            "changes": [_serialize_change(change) for change in planned_changes],
+            "applied": should_apply,
+            "validated": dry_run or validate_only,
+        }
+        if return_diff:
+            payload["diff"] = "".join(_render_diff(change) for change in planned_changes)
+        return payload
     except PatchError as exc:
         return _error(exc.code, str(exc), **exc.extra)

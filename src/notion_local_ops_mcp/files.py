@@ -93,6 +93,24 @@ def read_file(
     }
 
 
+def read_files(
+    paths: list[Path],
+    *,
+    offset: int | None,
+    limit: int | None,
+    max_lines: int,
+    max_bytes: int,
+) -> dict[str, object]:
+    results = [
+        read_file(path, offset=offset, limit=limit, max_lines=max_lines, max_bytes=max_bytes)
+        for path in paths
+    ]
+    return {
+        "success": all(result.get("success") is True for result in results),
+        "results": results,
+    }
+
+
 def write_file(path: Path, *, content: str) -> dict[str, object]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")

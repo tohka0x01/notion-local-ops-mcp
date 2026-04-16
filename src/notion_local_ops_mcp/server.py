@@ -24,8 +24,13 @@ from .config import (
 from .executors import ExecutorRegistry
 from .files import list_files as list_files_impl
 from .files import read_file as read_file_impl
+from .files import read_files as read_files_impl
 from .files import replace_in_file as replace_in_file_impl
 from .files import write_file as write_file_impl
+from .gitops import git_commit as git_commit_impl
+from .gitops import git_diff as git_diff_impl
+from .gitops import git_log as git_log_impl
+from .gitops import git_status as git_status_impl
 from .patching import apply_patch as apply_patch_impl
 from .pathing import resolve_cwd, resolve_path
 from .search import glob_files as glob_files_impl
@@ -64,7 +69,7 @@ registry = ExecutorRegistry(
 mcp = FastMCP(
     APP_NAME,
     instructions=(
-        "Use direct tools first for normal tasks: list/glob/grep/read/replace/write/patch/run. "
+        "Use direct tools first for normal tasks: list/glob/grep/read/replace/write/patch/git/run. "
         "Use delegate_task only when direct tools are insufficient for a complex, long-running, or multi-file task."
     ),
     middleware=[BearerAuthMiddleware()],
@@ -154,6 +159,19 @@ def read_file(path: str, offset: int | None = None, limit: int | None = None) ->
 
 
 @mcp.tool(
+    name="read_files",
+    description="Read multiple text files with the same optional offset and limit.",
+)
+def read_files(
+    paths: list[str],
+    offset: int | None = None,
+    limit: int | None = None,
+) -> dict[str, object]:
+    targets = [resolve_path(path, WORKSPACE_ROOT) for path in paths]
+    return read_files_impl(targets, offset=offset, limit=limit, max_lines=200, max_bytes=32768)
+
+
+@mcp.tool(
     name="replace_in_file",
     description="Replace an exact text fragment in a file. Can replace one unique match or all matches.",
 )
@@ -180,8 +198,65 @@ def write_file(path: str, content: str) -> dict[str, object]:
     name="apply_patch",
     description="Apply a codex-style patch with add, update, move, or delete operations.",
 )
-def apply_patch(patch: str) -> dict[str, object]:
-    return apply_patch_impl(patch=patch, workspace_root=WORKSPACE_ROOT)
+def apply_patch(
+    patch: str,
+    dry_run: bool = False,
+    validate_only: bool = False,
+    return_diff: bool = False,
+) -> dict[str, object]:
+    return apply_patch_impl(
+        patch=patch,
+        workspace_root=WORKSPACE_ROOT,
+        dry_run=dry_run,
+        validate_only=validate_only,
+        return_diff=return_diff,
+    )
+
+
+@mcp.tool(
+    name="git_status",
+    description="Return structured git status for the repository at cwd or the current workspace root.",
+)
+def git_status(cwd: str | None = None) -> dict[str, object]:
+    resolved_cwd = resolve_cwd(cwd, WORKSPACE_ROOT)
+    return git_status_impl(cwd=resolved_cwd)
+
+
+@mcp.tool(
+    name="git_diff",
+    description="Return git diff output and changed file paths for the repository at cwd.",
+)
+def git_diff(
+    cwd: str | None = None,
+    staged: bool = False,
+    paths: list[str] | None = None,
+    max_bytes: int = 65536,
+) -> dict[str, object]:
+    resolved_cwd = resolve_cwd(cwd, WORKSPACE_ROOT)
+    return git_diff_impl(cwd=resolved_cwd, staged=staged, paths=paths, max_bytes=max_bytes)
+
+
+@mcp.tool(
+    name="git_commit",
+    description="Create a git commit for staged changes, selected paths, or all current changes.",
+)
+def git_commit(
+    message: str,
+    cwd: str | None = None,
+    paths: list[str] | None = None,
+    stage_all: bool = False,
+) -> dict[str, object]:
+    resolved_cwd = resolve_cwd(cwd, WORKSPACE_ROOT)
+    return git_commit_impl(cwd=resolved_cwd, message=message, paths=paths, stage_all=stage_all)
+
+
+@mcp.tool(
+    name="git_log",
+    description="Return recent git commits for the repository at cwd.",
+)
+def git_log(cwd: str | None = None, limit: int = 10) -> dict[str, object]:
+    resolved_cwd = resolve_cwd(cwd, WORKSPACE_ROOT)
+    return git_log_impl(cwd=resolved_cwd, limit=limit)
 
 
 @mcp.tool(

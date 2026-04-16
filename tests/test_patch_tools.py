@@ -92,3 +92,54 @@ def test_apply_patch_deletes_file(tmp_path: Path) -> None:
 
     assert result["success"] is True
     assert target.exists() is False
+
+
+def test_apply_patch_dry_run_returns_diff_without_writing(tmp_path: Path) -> None:
+    target = tmp_path / "app.py"
+    target.write_text("before\n", encoding="utf-8")
+
+    result = apply_patch(
+        patch="\n".join(
+            [
+                "*** Begin Patch",
+                "*** Update File: app.py",
+                "@@",
+                "-before",
+                "+after",
+                "*** End Patch",
+            ]
+        ),
+        workspace_root=tmp_path,
+        dry_run=True,
+        return_diff=True,
+    )
+
+    assert result["success"] is True
+    assert result["applied"] is False
+    assert result["diff"].startswith("--- ")
+    assert target.read_text(encoding="utf-8") == "before\n"
+
+
+def test_apply_patch_validate_only_checks_patch_without_writing(tmp_path: Path) -> None:
+    target = tmp_path / "note.txt"
+    target.write_text("hello\n", encoding="utf-8")
+
+    result = apply_patch(
+        patch="\n".join(
+            [
+                "*** Begin Patch",
+                "*** Update File: note.txt",
+                "@@",
+                "-hello",
+                "+world",
+                "*** End Patch",
+            ]
+        ),
+        workspace_root=tmp_path,
+        validate_only=True,
+    )
+
+    assert result["success"] is True
+    assert result["validated"] is True
+    assert result["applied"] is False
+    assert target.read_text(encoding="utf-8") == "hello\n"
