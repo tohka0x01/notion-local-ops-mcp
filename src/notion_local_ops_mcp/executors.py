@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shlex
 import shutil
 import subprocess
@@ -7,18 +8,50 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from pathlib import PureWindowsPath
 
 from .tasks import TaskStore
 
 
 TERMINAL_TASK_STATUSES = {"succeeded", "failed", "cancelled"}
 ALLOWED_COMMIT_MODES = {"allowed", "required", "forbidden"}
+IS_WINDOWS = os.name == "nt"
+
+
+def _split_command(command: str) -> list[str]:
+    return shlex.split(command)
+
+
+def _binary_name(binary: str) -> str:
+    if IS_WINDOWS:
+        return PureWindowsPath(binary).stem.lower()
+    return Path(binary).stem.lower()
+
+
+def _resolve_delegate_command_parts(command: str) -> list[str]:
+    parts = _split_command(command)
+    if not IS_WINDOWS or not parts:
+        return parts
+    if _binary_name(parts[0]) not in {"codex", "claude"}:
+        return parts
+    resolved = shutil.which(parts[0])
+    if resolved:
+        parts[0] = resolved
+    return parts
+
+
+def _decode_output(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    return value.decode("utf-8", errors="replace")
 
 
 def _command_available(command: str | None) -> bool:
     if not command:
         return False
-    parts = shlex.split(command)
+    parts = _split_command(command)
     if not parts:
         return False
     binary = parts[0]
@@ -254,7 +287,7 @@ class ExecutorRegistry:
             invocation.args,
             cwd=str(cwd),
             shell=invocation.use_shell,
-            text=True,
+            text=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -269,6 +302,8 @@ class ExecutorRegistry:
         except subprocess.TimeoutExpired:
             process.kill()
             stdout, stderr = process.communicate()
+            stdout = _decode_output(stdout)
+            stderr = _decode_output(stderr)
             self.store.write_logs(task_id, stdout=stdout, stderr=stderr)
             self.store.write_summary(task_id, _summarize(stdout, stderr))
             self.store.update(task_id, status="failed", timed_out=True)
@@ -277,6 +312,8 @@ class ExecutorRegistry:
             with self._lock:
                 self._processes.pop(task_id, None)
 
+        stdout = _decode_output(stdout)
+        stderr = _decode_output(stderr)
         self.store.write_logs(task_id, stdout=stdout, stderr=stderr)
         self.store.write_summary(task_id, _summarize(stdout, stderr))
 
@@ -305,7 +342,7 @@ class ExecutorRegistry:
                 command,
                 cwd=str(cwd),
                 shell=True,
-                text=True,
+                text=False,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -325,6 +362,8 @@ class ExecutorRegistry:
         except subprocess.TimeoutExpired:
             process.kill()
             stdout, stderr = process.communicate()
+            stdout = _decode_output(stdout)
+            stderr = _decode_output(stderr)
             self.store.write_logs(task_id, stdout=stdout, stderr=stderr)
             self.store.write_summary(task_id, _summarize(stdout, stderr))
             self.store.update(task_id, status="failed", timed_out=True)
@@ -333,6 +372,8 @@ class ExecutorRegistry:
             with self._lock:
                 self._processes.pop(task_id, None)
 
+        stdout = _decode_output(stdout)
+        stderr = _decode_output(stderr)
         self.store.write_logs(task_id, stdout=stdout, stderr=stderr)
         self.store.write_summary(task_id, _summarize(stdout, stderr))
 
@@ -365,8 +406,8 @@ class ExecutorRegistry:
             commit_mode=commit_mode,
         )
         if executor_name == "codex":
-            parts = shlex.split(command)
-            if Path(parts[0]).name == "codex":
+            parts = _resolve_delegate_command_parts(command)
+            if _binary_name(parts[0]) == "codex":
                 args = [
                     *parts,
                     "exec",
@@ -379,8 +420,8 @@ class ExecutorRegistry:
                 args.append(prompt)
                 return Invocation(args=args, use_shell=False)
         if executor_name == "claude-code":
-            parts = shlex.split(command)
-            if Path(parts[0]).name == "claude":
+            parts = _resolve_delegate_command_parts(command)
+            if _binary_name(parts[0]) == "claude":
                 return Invocation(
                     args=[
                         *parts,

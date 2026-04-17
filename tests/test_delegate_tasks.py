@@ -1,7 +1,9 @@
 import time
 from pathlib import Path
 
-from notion_local_ops_mcp.executors import ExecutorRegistry
+import pytest
+import notion_local_ops_mcp.executors as executors
+from notion_local_ops_mcp.executors import ExecutorRegistry, Invocation
 from notion_local_ops_mcp.tasks import TaskStore
 
 
@@ -176,3 +178,113 @@ def test_build_prompt_includes_structured_delegate_sections(tmp_path: Path) -> N
     assert "Verification commands:" in prompt
     assert "- pytest -q" in prompt
     assert "Commit mode: required" in prompt
+
+
+@pytest.mark.parametrize(
+    ("executor_name", "command", "shim_path", "expected_prefix"),
+    [
+        (
+            "codex",
+            "codex",
+            r"C:\Users\test\AppData\Local\Programs\Codex\bin\codex.cmd",
+            ["exec", "--dangerously-bypass-approvals-and-sandbox", "-C"],
+        ),
+        (
+            "claude-code",
+            "claude",
+            r"C:\Users\test\AppData\Local\Programs\Claude\bin\claude.cmd",
+            ["--print", "--dangerously-skip-permissions", "--permission-mode"],
+        ),
+    ],
+)
+def test_build_invocation_resolves_windows_delegate_shim(
+    tmp_path: Path,
+    monkeypatch,
+    executor_name: str,
+    command: str,
+    shim_path: str,
+    expected_prefix: list[str],
+) -> None:
+    store = TaskStore(tmp_path / "state")
+    registry = ExecutorRegistry(
+        store=store,
+        codex_command="codex",
+        claude_command="claude",
+    )
+
+    monkeypatch.setattr(executors, "IS_WINDOWS", True)
+    monkeypatch.setattr(
+        executors.shutil,
+        "which",
+        lambda binary: shim_path if binary == command else None,
+    )
+
+    invocation = registry._build_invocation(
+        executor_name=executor_name,
+        command=command,
+        task="Fix Windows startup",
+        goal=None,
+        cwd=tmp_path,
+        context_files=[],
+        acceptance_criteria=[],
+        verification_commands=[],
+        commit_mode="allowed",
+    )
+
+    assert invocation.use_shell is False
+    assert invocation.args[0] == shim_path
+    assert invocation.args[1:4] == expected_prefix
+
+
+def test_run_task_decodes_utf8_process_output(tmp_path: Path, monkeypatch) -> None:
+    store = TaskStore(tmp_path / "state")
+    registry = ExecutorRegistry(
+        store=store,
+        codex_command="codex",
+        claude_command="claude",
+    )
+    task = store.create(task="Run codex", executor="codex", cwd=str(tmp_path), timeout=5)
+
+    monkeypatch.setattr(
+        registry,
+        "_build_invocation",
+        lambda **_: Invocation(args=["codex"], use_shell=False),
+    )
+
+    popen_kwargs: dict[str, object] = {}
+
+    class FakeProcess:
+        def __init__(self, *args, **kwargs) -> None:
+            popen_kwargs.update(kwargs)
+            self.returncode = 0
+
+        def poll(self):
+            return None
+
+        def communicate(self, timeout=None):
+            return (b"done \xe2\x98\x83\xff", b"warn \xff")
+
+        def kill(self) -> None:
+            return None
+
+    monkeypatch.setattr(executors.subprocess, "Popen", FakeProcess)
+
+    registry._run_task(
+        task_id=task["task_id"],
+        executor_name="codex",
+        command="codex",
+        task="Run codex",
+        goal=None,
+        cwd=tmp_path,
+        timeout=5,
+        cancel_event=executors.threading.Event(),
+        context_files=[],
+        acceptance_criteria=[],
+        verification_commands=[],
+        commit_mode="allowed",
+    )
+
+    assert popen_kwargs["text"] is False
+    assert store.get(task["task_id"])["status"] == "succeeded"
+    assert store.read_stdout(task["task_id"]) == "done \u2603\ufffd"
+    assert store.read_stderr(task["task_id"]) == "warn \ufffd"
