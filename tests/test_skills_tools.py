@@ -94,3 +94,39 @@ def test_list_skills_deduplicates_same_skill_name_and_preserves_sources(tmp_path
             "path": str(home_dir / ".codex" / "skills" / "shared-helper" / "SKILL.md"),
         },
     ]
+
+
+def test_list_skills_discovers_global_claude_root_without_hardcoded_username(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    home_dir = tmp_path / "custom-home"
+
+    _write_skill(
+        home_dir / ".claude" / "skills",
+        "claude-helper",
+        name="claude-helper",
+        description="Claude scoped helper",
+    )
+
+    result = list_skills(workspace_root=workspace_root, home_dir=home_dir)
+
+    assert result["success"] is True
+    assert result["skills"] == [
+        {
+            "name": "claude-helper",
+            "description": "Claude scoped helper",
+            "preferred_path": str(home_dir / ".claude" / "skills" / "claude-helper" / "SKILL.md"),
+            "sources": [
+                {
+                    "scope": "global",
+                    "namespace": "claude",
+                    "path": str(
+                        home_dir / ".claude" / "skills" / "claude-helper" / "SKILL.md"
+                    ),
+                }
+            ],
+        }
+    ]
+    assert any(
+        root["path"] == str(home_dir / ".claude" / "skills") and root["namespace"] == "claude"
+        for root in result["scanned_roots"]
+    )

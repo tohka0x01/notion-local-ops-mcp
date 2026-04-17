@@ -47,6 +47,7 @@ def _iter_skill_roots(
             [
                 ("global", "agents", home_dir / ".agents" / "skills"),
                 ("global", "codex", home_dir / ".codex" / "skills"),
+                ("global", "claude", home_dir / ".claude" / "skills"),
             ]
         )
     return roots
