@@ -140,30 +140,6 @@ Output style:
 - [Optional use case: Notion AI instruction page + project management](./docs/notion-use-case.md)
 - [可选应用场景：Notion AI 页面级指令 + 项目管理](./docs/notion-use-case.zh-CN.md)
 
-## 提供的能力
-
-- `list_files`
-- `list_skills`
-- `glob_files`
-- `grep_files`
-- `search_files`
-- `read_file`
-- `read_files`
-- `replace_in_file`
-- `write_file`
-- `apply_patch`
-- `git_status`
-- `git_diff`
-- `git_commit`
-- `git_log`
-- `run_command`
-- `delegate_task`
-- `get_task`
-- `wait_task`
-- `cancel_task`
-
-`delegate_task` 支持本地 `codex` 和 `claude` CLI，并使用结构化任务参数。
-
 ## 运行要求
 
 - Python 3.11+
@@ -316,7 +292,7 @@ cloudflared tunnel --config ./cloudflared-example.yml run <your-tunnel-name>
 | `NOTION_LOCAL_OPS_COMMAND_TIMEOUT` | 否 | `30` |
 | `NOTION_LOCAL_OPS_DELEGATE_TIMEOUT` | 否 | `1800` |
 
-## 工具说明
+## MCP 工具
 
 - `list_files`：列出文件和目录，支持 `limit` / `offset` 分页
 - `list_skills`：发现项目级和全局 skills，并返回名称与简介
@@ -333,7 +309,7 @@ cloudflared tunnel --config ./cloudflared-example.yml run <your-tunnel-name>
 - `git_commit`：stage 指定路径或全部改动后创建 commit
 - `git_log`：最近提交历史
 - `run_command`：运行本地 shell 命令，支持后台模式
-- `delegate_task`：把任务交给本地 `codex` 或 `claude`，支持 `goal`、`acceptance_criteria`、`verification_commands`、`commit_mode`
+- `delegate_task`：把任务交给本地 `codex` 或 `claude-code`，支持 `goal`、`acceptance_criteria`、`verification_commands`、`commit_mode`
 - `get_task`：读取后台任务状态和输出尾部
 - `wait_task`：阻塞等待后台 shell 任务或委托任务完成或超时
 - `cancel_task`：停止后台 shell 任务或委托任务

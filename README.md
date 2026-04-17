@@ -140,30 +140,6 @@ If you also want the **Notion AI instruction page + project-management** workflo
 - [Optional use case: Notion AI instruction page + project management](./docs/notion-use-case.md)
 - [可选应用场景：Notion AI 页面级指令 + 项目管理](./docs/notion-use-case.zh-CN.md)
 
-## What It Provides
-
-- `list_files`
-- `list_skills`
-- `glob_files`
-- `grep_files`
-- `search_files`
-- `read_file`
-- `read_files`
-- `replace_in_file`
-- `write_file`
-- `apply_patch`
-- `git_status`
-- `git_diff`
-- `git_commit`
-- `git_log`
-- `run_command`
-- `delegate_task`
-- `get_task`
-- `wait_task`
-- `cancel_task`
-
-`delegate_task` supports local `codex` and `claude` CLIs with structured task envelopes.
-
 ## Requirements
 
 - Python 3.11+
@@ -316,7 +292,7 @@ cloudflared tunnel --config ./cloudflared-example.yml run <your-tunnel-name>
 | `NOTION_LOCAL_OPS_COMMAND_TIMEOUT` | no | `30` |
 | `NOTION_LOCAL_OPS_DELEGATE_TIMEOUT` | no | `1800` |
 
-## Tool Notes
+## MCP Tools
 
 - `list_files`: list files and directories, with `limit` and `offset` pagination
 - `list_skills`: discover project and global skills with name and description summaries
@@ -333,7 +309,7 @@ cloudflared tunnel --config ./cloudflared-example.yml run <your-tunnel-name>
 - `git_commit`: stage selected paths or all changes and create a commit
 - `git_log`: recent commit history
 - `run_command`: run local shell commands, optionally in background
-- `delegate_task`: send a task to local `codex` or `claude`, with optional `goal`, `acceptance_criteria`, `verification_commands`, and `commit_mode`
+- `delegate_task`: send a task to local `codex` or `claude-code`, with optional `goal`, `acceptance_criteria`, `verification_commands`, and `commit_mode`
 - `get_task`: read task status and output tail
 - `wait_task`: block until a delegated or background shell task completes or times out
 - `cancel_task`: stop a delegated or background shell task
