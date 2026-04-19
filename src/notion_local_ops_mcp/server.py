@@ -1,11 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
-
 from fastmcp import FastMCP
-from fastmcp.exceptions import AuthorizationError
-from fastmcp.server.dependencies import get_http_request
-from fastmcp.server.middleware import Middleware
 import uvicorn
 
 from .http_compat import build_http_compat_app
@@ -46,24 +41,9 @@ from .skills import list_skills as list_skills_impl
 from .tasks import TaskStore
 
 
-def _extract_bearer_token(headers: dict[str, str]) -> str:
-    authorization = headers.get("authorization", "").strip()
-    if authorization.lower().startswith("bearer "):
-        return authorization[7:].strip()
-    return ""
-
-
-class BearerAuthMiddleware(Middleware):
-    async def on_request(self, context: Any, call_next: Any) -> Any:
-        if not AUTH_TOKEN:
-            return await call_next(context)
-        request = get_http_request()
-        headers = {str(key).lower(): str(value) for key, value in request.headers.items()}
-        token = _extract_bearer_token(headers)
-        if token != AUTH_TOKEN:
-            raise AuthorizationError("Unauthorized: invalid bearer token.")
-        return await call_next(context)
-
+# Bearer auth lives exclusively in the HTTP layer (http_compat.HTTPBearerAuthMiddleware)
+# so unauthenticated clients can't even open an SSE session. The FastMCP
+# protocol-layer middleware was redundant and has been removed.
 
 store = TaskStore(STATE_DIR)
 registry = ExecutorRegistry(
@@ -80,7 +60,6 @@ MCP_INSTRUCTIONS = (
 mcp = FastMCP(
     APP_NAME,
     instructions=MCP_INSTRUCTIONS,
-    middleware=[BearerAuthMiddleware()],
 )
 
 
