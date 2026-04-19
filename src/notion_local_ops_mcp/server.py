@@ -36,6 +36,7 @@ from .gitops import git_log as git_log_impl
 from .gitops import git_show as git_show_impl
 from .gitops import git_status as git_status_impl
 from .patching import apply_patch as apply_patch_impl
+from . import session
 from .pathing import resolve_cwd, resolve_path
 from .search import glob_files as glob_files_impl
 from .search import grep_files as grep_files_impl
@@ -272,12 +273,14 @@ def apply_patch(
 async def server_info() -> dict[str, object]:
     registered = await mcp._list_tools()
     tools = sorted(tool.name for tool in registered)
+    session_cwd = session.get_default_cwd()
     return {
         "success": True,
         "app_name": APP_NAME,
         "host": HOST,
         "port": PORT,
         "workspace_root": str(WORKSPACE_ROOT),
+        "session_cwd": str(session_cwd) if session_cwd else None,
         "state_dir": str(STATE_DIR),
         "command_timeout_seconds": COMMAND_TIMEOUT,
         "delegate_timeout_seconds": DELEGATE_TIMEOUT,
@@ -286,6 +289,71 @@ async def server_info() -> dict[str, object]:
         "claude_command": CLAUDE_COMMAND,
         "tools": tools,
         "tool_count": len(tools),
+    }
+
+
+@mcp.tool(
+    name="set_default_cwd",
+    description=(
+        "Set the session-wide default working directory used whenever a tool call "
+        "omits `cwd`. Pass null (or omit path) to clear the override and fall back to "
+        "the server's workspace root. Useful when running many commands in the same "
+        "repo: set it once instead of passing `cwd` on every call."
+    ),
+)
+def set_default_cwd(path: str | None = None) -> dict[str, object]:
+    if not path:
+        session.set_default_cwd(None)
+        return {
+            "success": True,
+            "session_cwd": None,
+            "workspace_root": str(WORKSPACE_ROOT),
+            "cleared": True,
+        }
+    target = resolve_path(path, WORKSPACE_ROOT)
+    if not target.exists():
+        return {
+            "success": False,
+            "error": {
+                "code": "cwd_not_found",
+                "message": f"Path does not exist: {target}",
+            },
+            "path": str(target),
+        }
+    if not target.is_dir():
+        return {
+            "success": False,
+            "error": {
+                "code": "cwd_not_directory",
+                "message": f"Path is not a directory: {target}",
+            },
+            "path": str(target),
+        }
+    session.set_default_cwd(target)
+    return {
+        "success": True,
+        "session_cwd": str(target),
+        "workspace_root": str(WORKSPACE_ROOT),
+        "cleared": False,
+    }
+
+
+@mcp.tool(
+    name="get_default_cwd",
+    description=(
+        "Return the currently active default working directory and whether it comes "
+        "from the session override (set_default_cwd) or from the server's workspace root."
+    ),
+)
+def get_default_cwd() -> dict[str, object]:
+    session_cwd = session.get_default_cwd()
+    effective = session_cwd if session_cwd is not None else WORKSPACE_ROOT
+    return {
+        "success": True,
+        "session_cwd": str(session_cwd) if session_cwd else None,
+        "workspace_root": str(WORKSPACE_ROOT),
+        "effective_cwd": str(effective),
+        "source": "session" if session_cwd else "workspace_root",
     }
 
 
