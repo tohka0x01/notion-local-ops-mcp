@@ -46,10 +46,10 @@ Act like a coding agent, not a Notion page editor.
 When the context contains repo paths, filenames, code extensions, README, AGENTS.md, CLAUDE.md, or .cursorrules, treat "document", "file", "notes", and "instructions" as local files unless the user explicitly says Notion page, wiki, or workspace page.
 For local file changes, do not use <edit_reference>. Use local file tools and, when useful, verify with git_diff, git_status, or tests.
 Use list_skills when the user asks about available skills or agent capabilities.
-Use direct tools first: server_info, set_default_cwd/get_default_cwd, glob_files, grep_files, read_file, read_files, replace_in_file, write_file, apply_patch, git_status, git_diff, git_commit, git_log, git_show, git_blame, run_command.
+Use direct tools first: server_info, set_default_cwd/get_default_cwd, search, read_text, replace_in_file, write_file, apply_patch, git_status, git_diff, git_commit, git_log, git_show, git_blame, run_command.
 Use list_files only when directory structure itself matters, and paginate with limit/offset instead of assuming full output.
-Use search_files only for simple substring search when regex or context is unnecessary.
-Use read_file/read_files with start_line/line_limit for line-based pagination and stable cursoring.
+Use search(mode='glob'|'regex'|'text') as the canonical query tool; legacy search_files/glob_files/grep_files are compatibility aliases.
+Use read_text(path=... or paths=[...]) as the canonical reader with start_line/line_limit; read_file/read_files are compatibility aliases.
 Use apply_patch for multi-change edits, same-file multi-location edits, file moves, deletes, or creates. Use dry_run=true, validate_only=true, or return_diff=true when you want validation or a preview before writing.
 Use write_file/replace_in_file dry_run=true for a no-write preview when you need guard rails.
 Do not issue parallel writes to the same file.
@@ -93,11 +93,11 @@ Tool strategy:
 - server_info: call first when troubleshooting connection/runtime mismatches.
 - set_default_cwd / get_default_cwd: set once for repeated repo operations instead of passing cwd every time.
 - In coding tasks, search the local repo first. Do not default to searching the Notion workspace.
-- glob_files: narrow candidate paths by pattern.
-- grep_files: search code or text with regex, glob filtering, and output modes.
+- search: canonical query tool. mode='glob' for path discovery, mode='regex' for regex/code search, mode='text' for literal substring search.
 - list_files: inspect directory structure only when structure matters; paginate with limit and offset when needed.
-- search_files: use only for simple substring search when regex or context is unnecessary.
-- read_file / read_files: read relevant file sections with line-based pagination (start_line/line_limit preferred; offset/limit is legacy alias).
+- search_files / glob_files / grep_files: legacy compatibility aliases. Prefer search().
+- read_text: canonical single/batch file reader with line-based pagination.
+- read_file / read_files: legacy compatibility aliases. Prefer read_text().
 - replace_in_file: make one small exact edit; use replace_all only when clearly intended; use dry_run=true to preview without writing.
 - apply_patch: prefer this for multi-hunk edits, same-file multi-location edits, moves, deletes, or adds in one patch. Use dry_run=true, validate_only=true, or return_diff=true when you want validation or a preview before writing.
 - write_file: create new files or rewrite short files when that is simpler than patching; use dry_run=true for no-write preview.
@@ -110,7 +110,7 @@ Tool strategy:
 - purge_tasks: garbage-collect stale task artifacts under STATE_DIR/tasks (dry_run first).
 
 Execution rules:
-- When exploring a codebase, prefer glob_files and grep_files over broad list_files calls.
+- When exploring a codebase, prefer search(mode='glob' or 'regex') over broad list_files calls.
 - Follow the loop: probe, edit, verify, summarize.
 - Do the minimum necessary read/explore work before editing.
 - After each edit, re-read the changed section or run a minimal verification command when useful.
@@ -299,11 +299,13 @@ cloudflared tunnel --config ./cloudflared-example.yml run <your-tunnel-name>
 
 - `list_files`：列出文件和目录并支持分页；默认排除隐藏/噪声目录并尊重 `.gitignore`
 - `list_skills`：发现项目级和全局 skills，并返回名称与简介
-- `glob_files`：按 glob 模式查找文件或目录
-- `grep_files`：支持 glob 过滤和多种输出模式的高级正则搜索
-- `search_files`：为兼容性保留的简单子串搜索
-- `read_file`：按行分页读取文本（推荐 `start_line`/`line_limit`，兼容 `offset`/`limit`），并返回 `language` 提示
-- `read_files`：批量读取多个文本文件，支持相同的按行分页参数
+- `search`：统一查询入口（glob 路径搜索 / regex 搜索 / literal 子串搜索）
+- `glob_files`：`search(mode='glob')` 的兼容别名
+- `grep_files`：`search(mode='regex')` 的兼容别名
+- `search_files`：`search(mode='text')` 的兼容别名
+- `read_text`：统一单文件/批量读取入口，支持按行分页（`start_line`/`line_limit`，兼容 `offset`/`limit`）和 `language` 提示
+- `read_file`：`read_text(path=...)` 的兼容别名
+- `read_files`：`read_text(paths=[...])` 的兼容别名
 - `replace_in_file`：替换一个精确片段，或替换全部精确匹配，支持 `dry_run`
 - `write_file`：整文件写入，支持 `dry_run`
 - `apply_patch`：应用 codex 风格的 add / update / move / delete patch，支持 `dry_run`、`validate_only` 和可选 diff 输出

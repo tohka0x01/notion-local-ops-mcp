@@ -22,8 +22,8 @@ src/notion_local_ops_mcp/
 ├── server.py      # FastMCP app, tool registration, uvicorn entrypoint
 ├── config.py      # All env-var driven settings (host, port, paths, timeouts…)
 ├── pathing.py     # Path resolution: relative → absolute under WORKSPACE_ROOT
-├── files.py       # list_files, read_file, write_file, replace_in_file
-├── search.py      # search_files — text search with glob filtering
+├── files.py       # list_files, read_text/read_file(s), write_file, replace_in_file
+├── search.py      # search/search_files/glob_files/grep_files implementations
 ├── shell.py       # run_command — subprocess with timeout
 ├── tasks.py       # TaskStore — persistent task metadata & logs on disk
 └── executors.py   # ExecutorRegistry — async delegate_task via codex / claude-code
@@ -36,9 +36,10 @@ src/notion_local_ops_mcp/
 | `server_info` | Inspect runtime config and available MCP tools |
 | `set_default_cwd` / `get_default_cwd` | Manage session default working directory |
 | `list_files` | List directory contents (flat or recursive) |
-| `glob_files` / `grep_files` | Path discovery and regex/code search |
-| `search_files` | Grep-like text search across files |
-| `read_file` / `read_files` | Read one or multiple files with line pagination |
+| `search` | Canonical unified query tool (glob/regex/text) |
+| `glob_files` / `grep_files` / `search_files` | Legacy compatibility aliases for `search` |
+| `read_text` | Canonical single/batch text reader with line pagination |
+| `read_file` / `read_files` | Legacy compatibility aliases for `read_text` |
 | `write_file` | Create or overwrite a file (`dry_run` supported) |
 | `replace_in_file` | Replace unique/all exact text fragments (`dry_run` supported) |
 | `apply_patch` | Apply codex-style patch with validation/dry-run support |
