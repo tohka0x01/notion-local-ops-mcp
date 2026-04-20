@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from contextlib import AsyncExitStack, asynccontextmanager
 from importlib.metadata import PackageNotFoundError, version as package_version
-from typing import Any, AsyncIterator, Awaitable, Callable
+from typing import Any, AsyncIterator, Callable
 
 from starlette.applications import Starlette
 from starlette.middleware import Middleware as StarletteMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
+from starlette.datastructures import Headers
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Mount, Route
 
@@ -77,7 +76,7 @@ def _build_server_card(
     }
 
 
-class HTTPBearerAuthMiddleware(BaseHTTPMiddleware):
+class HTTPBearerAuthMiddleware:
     """HTTP-layer Bearer auth.
 
     Applied before any MCP/SSE transport handling so that unauthenticated clients
@@ -86,26 +85,28 @@ class HTTPBearerAuthMiddleware(BaseHTTPMiddleware):
     """
 
     def __init__(self, app: Any, get_auth_token: AuthTokenProvider) -> None:
-        super().__init__(app)
+        self.app = app
         self._get_auth_token = get_auth_token
 
-    async def dispatch(
-        self,
-        request: Request,
-        call_next: Callable[[Request], Awaitable[Response]],
-    ) -> Response:
-        if request.method == "OPTIONS":
-            return await call_next(request)
-        if request.url.path in DISCOVERY_PATHS:
-            return await call_next(request)
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        method = str(scope.get("method", "GET")).upper()
+        path = str(scope.get("path", ""))
+        if method == "OPTIONS" or path in DISCOVERY_PATHS:
+            await self.app(scope, receive, send)
+            return
 
         expected = (self._get_auth_token() or "").strip()
         if not expected:
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
-        provided = _extract_bearer_token(request.headers.get("authorization", ""))
+        provided = _extract_bearer_token(Headers(raw=scope.get("headers", [])).get("authorization", ""))
         if provided != expected:
-            return JSONResponse(
+            response = JSONResponse(
                 {"error": "unauthorized", "message": "Missing or invalid bearer token."},
                 status_code=401,
                 headers={
@@ -113,7 +114,10 @@ class HTTPBearerAuthMiddleware(BaseHTTPMiddleware):
                     "Access-Control-Allow-Origin": "*",
                 },
             )
-        return await call_next(request)
+            await response(scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
 
 
 class MCPCompatibilityDispatcher:
