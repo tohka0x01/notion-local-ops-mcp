@@ -79,6 +79,89 @@ def test_server_read_files_tool_returns_multiple_file_results(tmp_path: Path) ->
     assert [item["content"] for item in result["results"]] == ["alpha", "beta"]
 
 
+def test_server_search_tool_unifies_regex_text_and_glob(tmp_path: Path) -> None:
+    from notion_local_ops_mcp import server
+
+    first = tmp_path / "one.py"
+    second = tmp_path / "two.txt"
+    first.write_text("alpha\nTODO: fix me\n", encoding="utf-8")
+    second.write_text("beta\nTODO: docs\n", encoding="utf-8")
+
+    glob_result = _call(server.search, mode="glob", path=str(tmp_path), pattern="*.py")
+    text_result = _call(server.search, mode="text", path=str(tmp_path), query="TODO", limit=10)
+    regex_result = _call(
+        server.search,
+        mode="regex",
+        path=str(tmp_path),
+        pattern=r"TODO:\s+\w+",
+        output_mode="files_with_matches",
+    )
+
+    assert glob_result["success"] is True
+    assert glob_result["mode"] == "glob"
+    assert [Path(item["path"]).name for item in glob_result["matches"]] == ["one.py"]
+
+    assert text_result["success"] is True
+    assert text_result["mode"] == "text"
+    assert len(text_result["matches"]) == 2
+
+    assert regex_result["success"] is True
+    assert regex_result["mode"] == "regex"
+    assert {Path(path).name for path in regex_result["files"]} == {"one.py", "two.txt"}
+
+
+def test_server_read_text_supports_single_and_batch_modes(tmp_path: Path) -> None:
+    from notion_local_ops_mcp import server
+
+    first = tmp_path / "one.txt"
+    second = tmp_path / "two.txt"
+    first.write_text("alpha\nbeta\n", encoding="utf-8")
+    second.write_text("gamma\ndelta\n", encoding="utf-8")
+
+    single = _call(server.read_text, path=str(first), start_line=2, line_limit=1)
+    batch = _call(
+        server.read_text,
+        paths=[str(first), str(second)],
+        start_line=1,
+        line_limit=1,
+    )
+
+    assert single["success"] is True
+    assert single["mode"] == "single"
+    assert single["content"] == "beta"
+
+    assert batch["success"] is True
+    assert batch["mode"] == "batch"
+    assert [item["content"] for item in batch["results"]] == ["alpha", "gamma"]
+
+
+def test_server_read_text_requires_exactly_one_path_argument(tmp_path: Path) -> None:
+    from notion_local_ops_mcp import server
+
+    both_missing = _call(server.read_text)
+    both_present = _call(server.read_text, path="one.txt", paths=["two.txt"])
+
+    assert both_missing["success"] is False
+    assert both_missing["error"]["code"] == "invalid_arguments"
+    assert both_present["success"] is False
+    assert both_present["error"]["code"] == "invalid_arguments"
+
+
+def test_server_search_validates_mode_and_required_fields(tmp_path: Path) -> None:
+    from notion_local_ops_mcp import server
+
+    invalid_mode = _call(server.search, mode="unknown", path=str(tmp_path))
+    missing_regex_pattern = _call(server.search, mode="regex", path=str(tmp_path))
+    missing_glob_pattern = _call(server.search, mode="glob", path=str(tmp_path))
+
+    assert invalid_mode["success"] is False
+    assert invalid_mode["error"]["code"] == "invalid_mode"
+    assert missing_regex_pattern["success"] is False
+    assert missing_regex_pattern["error"]["code"] == "missing_pattern"
+    assert missing_glob_pattern["success"] is False
+    assert missing_glob_pattern["error"]["code"] == "missing_pattern"
+
+
 def test_server_delegate_task_accepts_structured_fields(tmp_path: Path) -> None:
     from notion_local_ops_mcp import server
 

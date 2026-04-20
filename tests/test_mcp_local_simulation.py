@@ -193,3 +193,39 @@ def test_mcp_delegate_task_structured_output_end_to_end(tmp_path: Path, monkeypa
                 assert result["structured_output"] == {"ok": True, "source": "delegate"}
 
         anyio.run(scenario)
+
+
+def test_mcp_canonical_search_and_read_text_end_to_end(tmp_path: Path, monkeypatch) -> None:
+    token = "secret-token"
+    (tmp_path / "demo.py").write_text("alpha\nTODO item\n", encoding="utf-8")
+
+    with _running_server(tmp_path, monkeypatch, auth_token=token) as url:
+
+        async def scenario() -> None:
+            async with _mcp_session(url, token=token) as session:
+                found = await _call_tool(
+                    session,
+                    "search",
+                    {
+                        "mode": "glob",
+                        "path": ".",
+                        "pattern": "*.py",
+                    },
+                )
+                read = await _call_tool(
+                    session,
+                    "read_text",
+                    {
+                        "path": "demo.py",
+                        "start_line": 2,
+                        "line_limit": 1,
+                    },
+                )
+                assert found["success"] is True
+                assert found["mode"] == "glob"
+                assert any(item["path"].endswith("demo.py") for item in found["matches"])
+                assert read["success"] is True
+                assert read["mode"] == "single"
+                assert read["content"] == "TODO item"
+
+        anyio.run(scenario)

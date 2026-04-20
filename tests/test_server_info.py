@@ -24,6 +24,8 @@ def test_server_info_reports_metadata_and_tools() -> None:
     # Spot-check a handful of must-have tools from each module.
     for name in [
         "server_info",
+        "search",
+        "read_text",
         "run_command",
         "read_file",
         "replace_in_file",
@@ -37,3 +39,6 @@ def test_server_info_reports_metadata_and_tools() -> None:
     ]:
         assert name in tools, f"expected {name} in tools list"
     assert payload["tool_count"] == len(tools)
+    aliases = payload["tool_aliases"]
+    assert aliases["search"] == ["search_files", "glob_files", "grep_files"]
+    assert aliases["read_text"] == ["read_file", "read_files"]

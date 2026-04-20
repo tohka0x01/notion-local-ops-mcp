@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastmcp import FastMCP
+import re
 import uvicorn
 
 from .http_compat import build_http_compat_app
@@ -119,8 +120,89 @@ def list_files(
 
 
 @mcp.tool(
+    name="search",
+    description=(
+        "Canonical search tool that unifies glob, regex grep, and plain-text search. "
+        "Use mode='glob' for path discovery, mode='regex' for code/text regex, and "
+        "mode='text' for literal substring search."
+    ),
+)
+def search(
+    mode: str = "regex",
+    path: str | None = None,
+    pattern: str | None = None,
+    query: str | None = None,
+    glob: str | None = None,
+    output_mode: str = "content",
+    before: int = 0,
+    after: int = 0,
+    ignore_case: bool = False,
+    limit: int = 200,
+    offset: int = 0,
+    multiline: bool = False,
+) -> dict[str, object]:
+    target = resolve_path(path or ".", WORKSPACE_ROOT)
+
+    if mode == "glob":
+        if not pattern:
+            return {
+                "success": False,
+                "error": {"code": "missing_pattern", "message": "mode=glob requires `pattern`."},
+            }
+        result = glob_files_impl(target, pattern=pattern, limit=limit, offset=offset)
+        if isinstance(result, dict):
+            result["mode"] = mode
+        return result
+
+    if mode in {"regex", "text"}:
+        effective_pattern = pattern
+        if mode == "text":
+            literal = query if query is not None else pattern
+            if literal is None:
+                return {
+                    "success": False,
+                    "error": {
+                        "code": "missing_query",
+                        "message": "mode=text requires `query` (or `pattern` for backward compatibility).",
+                    },
+                }
+            effective_pattern = re.escape(literal)
+        elif effective_pattern is None:
+            return {
+                "success": False,
+                "error": {"code": "missing_pattern", "message": "mode=regex requires `pattern`."},
+            }
+
+        result = grep_files_impl(
+            target,
+            pattern=effective_pattern,
+            glob_pattern=glob,
+            output_mode=output_mode,
+            before=before,
+            after=after,
+            ignore_case=ignore_case,
+            head_limit=limit,
+            offset=offset,
+            multiline=multiline,
+        )
+        if isinstance(result, dict):
+            result["mode"] = mode
+            if mode == "text" and query is not None:
+                result["query"] = query
+        return result
+
+    return {
+        "success": False,
+        "error": {
+            "code": "invalid_mode",
+            "message": "mode must be one of: glob, regex, text.",
+        },
+    }
+
+
+@mcp.tool(
     name="search_files",
-    description="Simple substring search in files. Prefer grep_files for regex, context lines, or advanced filtering.",
+    description="Legacy alias for simple substring search. Prefer `search(mode='text', ...)`.",
 )
 def search_files(
     query: str,
@@ -134,7 +216,7 @@ def search_files(
 
 @mcp.tool(
     name="glob_files",
-    description="Find files or directories by glob pattern. Use this to narrow candidate paths before reading or editing.",
+    description="Legacy alias for glob path discovery. Prefer `search(mode='glob', ...)`.",
 )
 def glob_files(
     pattern: str,
@@ -148,7 +230,7 @@ def glob_files(
 
 @mcp.tool(
     name="grep_files",
-    description="Advanced regex search across files with glob filtering, context lines, and alternate output modes.",
+    description="Legacy alias for regex search. Prefer `search(mode='regex', ...)`.",
 )
 def grep_files(
     pattern: str,
@@ -178,10 +260,63 @@ def grep_files(
 
 
 @mcp.tool(
+    name="read_text",
+    description=(
+        "Canonical text-reader tool. Pass either `path` for single-file reads or "
+        "`paths` for batch reads. Pagination is line-based via start_line/line_limit."
+    ),
+)
+def read_text(
+    path: str | None = None,
+    paths: list[str] | None = None,
+    offset: int | None = None,
+    limit: int | None = None,
+    start_line: int | None = None,
+    line_limit: int | None = None,
+) -> dict[str, object]:
+    has_path = bool(path)
+    has_paths = bool(paths)
+    if has_path == has_paths:
+        return {
+            "success": False,
+            "error": {
+                "code": "invalid_arguments",
+                "message": "Provide exactly one of `path` or `paths`.",
+            },
+        }
+
+    effective_offset = start_line if start_line is not None else offset
+    effective_limit = line_limit if line_limit is not None else limit
+    if path:
+        target = resolve_path(path, WORKSPACE_ROOT)
+        result = read_file_impl(
+            target,
+            offset=effective_offset,
+            limit=effective_limit,
+            max_lines=200,
+            max_bytes=32768,
+        )
+        if isinstance(result, dict):
+            result["mode"] = "single"
+        return result
+
+    targets = [resolve_path(item, WORKSPACE_ROOT) for item in (paths or [])]
+    result = read_files_impl(
+        targets,
+        offset=effective_offset,
+        limit=effective_limit,
+        max_lines=200,
+        max_bytes=32768,
+    )
+    if isinstance(result, dict):
+        result["mode"] = "batch"
+    return result
+
+
+@mcp.tool(
     name="read_file",
     description=(
-        "Read a text file using line-based pagination. Use start_line/line_limit "
-        "for clarity (offset/limit remain for backward compatibility)."
+        "Legacy single-file reader. Prefer `read_text(path=..., start_line=..., line_limit=...)`."
     ),
 )
 def read_file(
@@ -200,8 +335,7 @@ def read_file(
 @mcp.tool(
     name="read_files",
     description=(
-        "Batch read text files with shared line-based pagination. "
-        "Use start_line/line_limit (offset/limit kept for backward compatibility)."
+        "Legacy batch reader. Prefer `read_text(paths=[...], start_line=..., line_limit=...)`."
     ),
 )
 def read_files(
@@ -307,6 +441,10 @@ async def server_info() -> dict[str, object]:
         "claude_command": CLAUDE_COMMAND,
         "tools": tools,
         "tool_count": len(tools),
+        "tool_aliases": {
+            "search": ["search_files", "glob_files", "grep_files"],
+            "read_text": ["read_file", "read_files"],
+        },
     }
 
 
