@@ -267,6 +267,7 @@ cloudflared tunnel --config ./cloudflared-example.yml run <your-tunnel-name>
 | `NOTION_LOCAL_OPS_CLAUDE_COMMAND` | no | `claude` |
 | `NOTION_LOCAL_OPS_COMMAND_TIMEOUT` | no | `120` |
 | `NOTION_LOCAL_OPS_DELEGATE_TIMEOUT` | no | `1800` |
+| `NOTION_LOCAL_OPS_DEBUG_MCP_LOGGING` | no | `0` |
 
 ## MCP Tools
 
@@ -292,6 +293,22 @@ cloudflared tunnel --config ./cloudflared-example.yml run <your-tunnel-name>
 - `wait_task`: block until a delegated or background shell task completes or times out
 - `cancel_task`: stop a delegated or background shell task
 - `purge_tasks`: clean old task artifacts from `STATE_DIR/tasks` with dry-run support
+
+## Debugging Notion / MCP handshake issues
+
+If a client appears connected but hangs during initialize, tools/list, or tool calls, enable verbose MCP request logging:
+
+```bash
+NOTION_LOCAL_OPS_DEBUG_MCP_LOGGING=1 ./scripts/dev-tunnel.sh
+```
+
+When enabled, the server log includes `MCP_DEBUG` lines with:
+
+- HTTP method and path
+- session id hint
+- JSON-RPC method
+- tool name for `tools/call`
+- response status and duration
 
 ## Verify
 

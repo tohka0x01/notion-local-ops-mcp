@@ -267,6 +267,7 @@ cloudflared tunnel --config ./cloudflared-example.yml run <your-tunnel-name>
 | `NOTION_LOCAL_OPS_CLAUDE_COMMAND` | 否 | `claude` |
 | `NOTION_LOCAL_OPS_COMMAND_TIMEOUT` | 否 | `120` |
 | `NOTION_LOCAL_OPS_DELEGATE_TIMEOUT` | 否 | `1800` |
+| `NOTION_LOCAL_OPS_DEBUG_MCP_LOGGING` | 否 | `0` |
 
 ## MCP 工具
 
@@ -292,6 +293,22 @@ cloudflared tunnel --config ./cloudflared-example.yml run <your-tunnel-name>
 - `wait_task`：阻塞等待后台 shell 任务或委托任务完成或超时
 - `cancel_task`：停止后台 shell 任务或委托任务
 - `purge_tasks`：清理 `STATE_DIR/tasks` 下的旧任务产物（支持 `dry_run`）
+
+## 调试 Notion / MCP 握手卡住
+
+如果客户端显示已连接但卡在 initialize、tools/list 或 tool call，可开启 MCP 详细日志：
+
+```bash
+NOTION_LOCAL_OPS_DEBUG_MCP_LOGGING=1 ./scripts/dev-tunnel.sh
+```
+
+开启后，server log 会输出 `MCP_DEBUG` 行，包含：
+
+- HTTP method / path
+- session id 提示
+- JSON-RPC method
+- `tools/call` 的 tool 名
+- 响应状态码与耗时
 
 ## 验证
 

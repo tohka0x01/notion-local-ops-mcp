@@ -27,6 +27,13 @@ import os
 from pathlib import Path
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 APP_NAME = "notion-local-ops-mcp"
 HOST = os.environ.get("NOTION_LOCAL_OPS_HOST", "127.0.0.1")
 PORT = int(os.environ.get("NOTION_LOCAL_OPS_PORT", "8766"))
@@ -46,6 +53,7 @@ CODEX_COMMAND = os.environ.get("NOTION_LOCAL_OPS_CODEX_COMMAND", "codex").strip(
 CLAUDE_COMMAND = os.environ.get("NOTION_LOCAL_OPS_CLAUDE_COMMAND", "claude").strip()
 COMMAND_TIMEOUT = int(os.environ.get("NOTION_LOCAL_OPS_COMMAND_TIMEOUT", "120"))
 DELEGATE_TIMEOUT = int(os.environ.get("NOTION_LOCAL_OPS_DELEGATE_TIMEOUT", "1800"))
+DEBUG_MCP_LOGGING = _env_flag("NOTION_LOCAL_OPS_DEBUG_MCP_LOGGING", default=False)
 
 
 def ensure_runtime_directories() -> None:

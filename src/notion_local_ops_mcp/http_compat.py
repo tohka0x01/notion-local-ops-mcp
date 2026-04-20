@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from contextlib import AsyncExitStack, asynccontextmanager
 from importlib.metadata import PackageNotFoundError, version as package_version
+import json
+import logging
+import sys
+import time
 from typing import Any, AsyncIterator, Callable
+from urllib.parse import parse_qs
 
 from starlette.applications import Starlette
 from starlette.middleware import Middleware as StarletteMiddleware
@@ -29,6 +34,15 @@ DISCOVERY_PATHS = {"/.well-known/mcp.json", "/.well-known/mcp/server-card.json"}
 OAUTH_DISCOVERY_PATHS = {"/.well-known/oauth-authorization-server"}
 
 AuthTokenProvider = Callable[[], str]
+DebugEnabledProvider = Callable[[], bool]
+DEBUG_LOGGER = logging.getLogger("notion_local_ops_mcp.mcp_debug")
+
+
+def _emit_debug_log(message: str, *args: object) -> None:
+    DEBUG_LOGGER.info(message, *args)
+    rendered = message % args if args else message
+    sys.stderr.write(f"{rendered}\n")
+    sys.stderr.flush()
 
 
 def _resolve_version(app_name: str) -> str:
@@ -75,6 +89,174 @@ def _build_server_card(
         },
         "instructions": instructions,
     }
+
+
+def _extract_session_hint(scope: dict[str, Any]) -> str | None:
+    headers = Headers(raw=scope.get("headers", []))
+    session_id = headers.get("mcp-session-id", "").strip()
+    if session_id:
+        return session_id
+    query = parse_qs(scope.get("query_string", b"").decode("latin-1"))
+    query_session = (query.get("session_id") or [""])[0].strip()
+    return query_session or None
+
+
+def _summarize_rpc_body(body: bytes) -> dict[str, Any]:
+    if not body:
+        return {"kind": "empty"}
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return {"kind": "non_json", "bytes": len(body)}
+
+    items = payload if isinstance(payload, list) else [payload]
+    entries: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            entries.append({"kind": type(item).__name__})
+            continue
+        method = item.get("method")
+        params = item.get("params")
+        tool_name = None
+        if isinstance(params, dict):
+            tool_name = params.get("name") or params.get("tool")
+        entries.append(
+            {
+                "id": item.get("id"),
+                "method": method,
+                "tool": tool_name,
+            }
+        )
+    return {
+        "kind": "jsonrpc",
+        "batch": isinstance(payload, list),
+        "count": len(items),
+        "entries": entries,
+    }
+
+
+async def _buffer_receive(receive: Any) -> tuple[bytes, Any]:
+    buffered_messages: list[dict[str, Any]] = []
+    body_parts: list[bytes] = []
+    while True:
+        message = await receive()
+        buffered_messages.append(message)
+        if message["type"] == "http.request":
+            body_parts.append(message.get("body", b""))
+            if not message.get("more_body", False):
+                break
+            continue
+        if message["type"] == "http.disconnect":
+            break
+
+    async def replay_receive() -> dict[str, Any]:
+        if buffered_messages:
+            return buffered_messages.pop(0)
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    return b"".join(body_parts), replay_receive
+
+
+class MCPDebugLoggingMiddleware:
+    def __init__(
+        self,
+        app: Any,
+        *,
+        get_debug_enabled: DebugEnabledProvider,
+        mcp_path: str,
+    ) -> None:
+        self.app = app
+        self._get_debug_enabled = get_debug_enabled
+        self._mcp_path = mcp_path
+
+    def _should_trace(self, scope: dict[str, Any]) -> bool:
+        if scope.get("type") != "http":
+            return False
+        path = str(scope.get("path", ""))
+        return (
+            path == self._mcp_path
+            or path in LEGACY_SSE_MESSAGE_PATHS
+            or path in DISCOVERY_PATHS
+            or path.startswith("/.well-known/oauth-")
+            or path.startswith("/oauth/")
+            or path in {"/authorize", "/token"}
+        )
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if not self._get_debug_enabled() or not self._should_trace(scope):
+            await self.app(scope, receive, send)
+            return
+
+        started = time.monotonic()
+        method = str(scope.get("method", "GET")).upper()
+        path = str(scope.get("path", ""))
+        client = scope.get("client") or ("", 0)
+        client_host = client[0] if isinstance(client, tuple) else str(client)
+        session_hint = _extract_session_hint(scope)
+        headers = Headers(raw=scope.get("headers", []))
+        accept = headers.get("accept", "")
+        request_id = hex(time.monotonic_ns())[-10:]
+        rpc_summary: dict[str, Any] | None = None
+        body_bytes = b""
+
+        if method in {"POST", "DELETE"}:
+            body_bytes, receive = await _buffer_receive(receive)
+            rpc_summary = _summarize_rpc_body(body_bytes)
+
+        if rpc_summary:
+            _emit_debug_log(
+                "MCP_DEBUG request_id=%s phase=request method=%s path=%s client=%s session=%s body_bytes=%s rpc=%s",
+                request_id,
+                method,
+                path,
+                client_host,
+                session_hint or "-",
+                len(body_bytes),
+                json.dumps(rpc_summary, ensure_ascii=False, separators=(",", ":")),
+            )
+        else:
+            _emit_debug_log(
+                "MCP_DEBUG request_id=%s phase=request method=%s path=%s client=%s session=%s accept=%s",
+                request_id,
+                method,
+                path,
+                client_host,
+                session_hint or "-",
+                accept or "-",
+            )
+
+        status_code: int | None = None
+        stream_logged = False
+
+        async def send_wrapper(message: dict[str, Any]) -> None:
+            nonlocal status_code, stream_logged
+            if message["type"] == "http.response.start":
+                status_code = int(message["status"])
+                if method == "GET" and "text/event-stream" in accept.lower():
+                    stream_logged = True
+                    _emit_debug_log(
+                        "MCP_DEBUG request_id=%s phase=response_start method=%s path=%s session=%s status=%s stream=true",
+                        request_id,
+                        method,
+                        path,
+                        session_hint or "-",
+                        status_code,
+                    )
+            elif message["type"] == "http.response.body" and not message.get("more_body", False):
+                duration_ms = round((time.monotonic() - started) * 1000, 1)
+                _emit_debug_log(
+                    "MCP_DEBUG request_id=%s phase=response_end method=%s path=%s session=%s status=%s duration_ms=%s stream_started=%s",
+                    request_id,
+                    method,
+                    path,
+                    session_hint or "-",
+                    status_code,
+                    duration_ms,
+                    stream_logged,
+                )
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
 
 
 class HTTPBearerAuthMiddleware:
@@ -223,6 +405,7 @@ def build_http_compat_app(
     app_name: str,
     mcp_path: str,
     get_auth_token: AuthTokenProvider,
+    get_debug_enabled: DebugEnabledProvider,
     instructions: str,
 ) -> Starlette:
     app_version = _resolve_version(app_name)
@@ -250,6 +433,11 @@ def build_http_compat_app(
             Mount("/", app=dispatcher),
         ],
         middleware=[
+            StarletteMiddleware(
+                MCPDebugLoggingMiddleware,
+                get_debug_enabled=get_debug_enabled,
+                mcp_path=mcp_path,
+            ),
             StarletteMiddleware(
                 HTTPBearerAuthMiddleware,
                 get_auth_token=get_auth_token,

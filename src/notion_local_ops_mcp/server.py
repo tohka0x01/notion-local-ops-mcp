@@ -12,6 +12,7 @@ from .config import (
     CLAUDE_COMMAND,
     CODEX_COMMAND,
     COMMAND_TIMEOUT,
+    DEBUG_MCP_LOGGING,
     DELEGATE_TIMEOUT,
     HOST,
     PORT,
@@ -69,6 +70,10 @@ def _current_auth_token() -> str:
     # Resolved via module globals so tests that monkeypatch ``AUTH_TOKEN`` on
     # this module (and runtime overrides) are honored per-request.
     return globals().get("AUTH_TOKEN", "") or ""
+
+
+def _current_debug_mcp_logging() -> bool:
+    return bool(globals().get("DEBUG_MCP_LOGGING", False))
 
 
 @mcp.tool(
@@ -327,6 +332,7 @@ async def server_info() -> dict[str, object]:
         "command_timeout_seconds": COMMAND_TIMEOUT,
         "delegate_timeout_seconds": DELEGATE_TIMEOUT,
         "auth": "bearer" if AUTH_TOKEN else "none",
+        "debug_mcp_logging": bool(DEBUG_MCP_LOGGING),
         "codex_command": CODEX_COMMAND,
         "claude_command": CLAUDE_COMMAND,
         "tools": tools,
@@ -661,6 +667,7 @@ def build_http_app():
         app_name=APP_NAME,
         mcp_path="/mcp",
         get_auth_token=_current_auth_token,
+        get_debug_enabled=_current_debug_mcp_logging,
         instructions=MCP_INSTRUCTIONS,
     )
 
@@ -672,6 +679,7 @@ def main() -> None:
     print(f"state_dir={STATE_DIR}")
     print("transport=streamable-http")
     print("mcp_path=/mcp")
+    print(f"debug_mcp_logging={DEBUG_MCP_LOGGING}")
     app = build_http_app()
     uvicorn.run(app, host=HOST, port=PORT)
 

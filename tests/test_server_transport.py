@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import socket
 import threading
 import time
@@ -9,9 +10,14 @@ from pathlib import Path
 import anyio
 import httpx
 import uvicorn
+from starlette.applications import Starlette
+from starlette.middleware import Middleware as StarletteMiddleware
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from notion_local_ops_mcp import server
+from notion_local_ops_mcp.http_compat import MCPDebugLoggingMiddleware
 from notion_local_ops_mcp.server import build_http_app
 
 
@@ -221,3 +227,37 @@ def test_http_app_supports_legacy_sse_get_on_mcp(tmp_path, monkeypatch) -> None:
                     assert response.headers["content-type"].startswith("text/event-stream")
 
         anyio.run(scenario)
+
+
+def test_debug_logging_middleware_logs_rpc_method_and_preserves_body(caplog) -> None:
+    async def echo_json(request) -> JSONResponse:
+        return JSONResponse(await request.json())
+
+    app = Starlette(
+        routes=[Route("/mcp", endpoint=echo_json, methods=["POST"])],
+        middleware=[
+            StarletteMiddleware(
+                MCPDebugLoggingMiddleware,
+                get_debug_enabled=lambda: True,
+                mcp_path="/mcp",
+            )
+        ],
+    )
+
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "search", "arguments": {"mode": "text", "query": "TODO"}},
+    }
+
+    caplog.set_level(logging.INFO, logger="notion_local_ops_mcp.mcp_debug")
+    with TestClient(app) as client:
+        response = client.post("/mcp", json=payload, headers={"mcp-session-id": "sess-123"})
+
+    assert response.status_code == 200
+    assert response.json() == payload
+    messages = [record.message for record in caplog.records if record.name == "notion_local_ops_mcp.mcp_debug"]
+    assert any("phase=request" in message and '"method":"tools/call"' in message for message in messages)
+    assert any('"tool":"search"' in message for message in messages)
+    assert any("phase=response_end" in message and "status=200" in message for message in messages)

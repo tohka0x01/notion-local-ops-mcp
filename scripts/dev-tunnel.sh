@@ -23,6 +23,7 @@ Optional:
 - NOTION_LOCAL_OPS_PORT (defaults to 8766)
 - NOTION_LOCAL_OPS_CLOUDFLARED_CONFIG (named tunnel config path)
 - NOTION_LOCAL_OPS_TUNNEL_NAME (optional override for cloudflared tunnel run)
+- NOTION_LOCAL_OPS_DEBUG_MCP_LOGGING (set to 1/true/on to log MCP methods/tools)
 
 If ./cloudflared.local.yml or ./cloudflared.local.yaml exists, this script
 uses that named tunnel config automatically. Otherwise it falls back to a
@@ -163,6 +164,7 @@ OVERRIDE_CODEX_COMMAND="${NOTION_LOCAL_OPS_CODEX_COMMAND:-}"
 OVERRIDE_CLAUDE_COMMAND="${NOTION_LOCAL_OPS_CLAUDE_COMMAND:-}"
 OVERRIDE_COMMAND_TIMEOUT="${NOTION_LOCAL_OPS_COMMAND_TIMEOUT:-}"
 OVERRIDE_DELEGATE_TIMEOUT="${NOTION_LOCAL_OPS_DELEGATE_TIMEOUT:-}"
+OVERRIDE_DEBUG_MCP_LOGGING="${NOTION_LOCAL_OPS_DEBUG_MCP_LOGGING:-}"
 
 load_env_file
 
@@ -200,6 +202,10 @@ fi
 
 if [[ -n "${OVERRIDE_DELEGATE_TIMEOUT}" ]]; then
   export NOTION_LOCAL_OPS_DELEGATE_TIMEOUT="${OVERRIDE_DELEGATE_TIMEOUT}"
+fi
+
+if [[ -n "${OVERRIDE_DEBUG_MCP_LOGGING}" ]]; then
+  export NOTION_LOCAL_OPS_DEBUG_MCP_LOGGING="${OVERRIDE_DEBUG_MCP_LOGGING}"
 fi
 
 if [[ -z "${NOTION_LOCAL_OPS_AUTH_TOKEN:-}" ]]; then
