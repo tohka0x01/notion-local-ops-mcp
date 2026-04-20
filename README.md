@@ -332,6 +332,15 @@ pytest -q
 python -m compileall src tests
 ```
 
+### Local MCP call simulation tests
+
+Use these to simulate real MCP client/server flows locally (initialize + call_tool + wait_task):
+
+```bash
+source .venv/bin/activate
+pytest -q tests/test_server_transport.py tests/test_concurrent_clients.py tests/test_mcp_local_simulation.py
+```
+
 ## Troubleshooting
 
 ### Notion says it cannot connect

@@ -332,6 +332,15 @@ pytest -q
 python -m compileall src tests
 ```
 
+### 本地 MCP 调用模拟测试
+
+下面这组用例会本地模拟真实 MCP client/server 流程（initialize + call_tool + wait_task）：
+
+```bash
+source .venv/bin/activate
+pytest -q tests/test_server_transport.py tests/test_concurrent_clients.py tests/test_mcp_local_simulation.py
+```
+
 ## 故障排查
 
 ### Notion 提示无法连接
